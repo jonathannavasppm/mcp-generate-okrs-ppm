@@ -13,8 +13,8 @@ export async function validateOriginFile(runId: string): Promise<ToolResponse> {
 
   try {
     await fs.access(EXCEL_TEMPLATE_PATH)
-    const wb = new ExcelJS.Workbook()
-    await wb.xlsx.readFile(EXCEL_TEMPLATE_PATH)
+    const workbook = new ExcelJS.Workbook()
+    await workbook.xlsx.readFile(EXCEL_TEMPLATE_PATH)
   } catch {
     errors.push(
       `Plantilla de Excel inválida o inaccesible: ${EXCEL_TEMPLATE_PATH}`
