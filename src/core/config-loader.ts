@@ -2,15 +2,20 @@ import { z } from "zod"
 import dotenv from "dotenv"
 dotenv.config()
 
-const projectSchema = z.object({
-  name: z.string().min(1),
-  path: z.string().min(1),
-  branch: z.string().min(1),
-  timeToCompare: z.string().min(1),
-  sonarqube: z.record(z.string(), z.unknown()).optional(),
-  uptimeRobot: z.record(z.string(), z.unknown()).optional(),
-  jira: z.record(z.string(), z.unknown()).optional(),
-})
+const sourceBlockSchema = z.record(z.string(), z.unknown()).optional()
+
+const projectSchema = z
+  .object({
+    name: z.string().min(1),
+    path: z.string().min(1),
+    branch: z.string().min(1),
+    timeToCompare: z.string().min(1),
+    "npm-audit": sourceBlockSchema,
+    sonarqube: sourceBlockSchema,
+    uptimeRobot: sourceBlockSchema,
+    jira: sourceBlockSchema,
+  })
+  .passthrough()
 
 const projectsEnvSchema = z.array(projectSchema).min(1)
 

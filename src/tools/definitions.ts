@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { z } from "zod"
 import { verifyConfig } from "./verify-config.js"
 import { validateOriginFile } from "./validate-origin-file.js"
+import { generateOKR } from "./generate-okr.js"
 
 const validateOriginFileSchema = z.object({
   runId: z.string(),
@@ -26,5 +27,15 @@ export const registerTools = (server: McpServer) => {
       inputSchema: validateOriginFileSchema,
     },
     async ({ runId }) => validateOriginFile(runId)
+  )
+
+  server.registerTool(
+    "generateOKR",
+    {
+      title: "Generar reporte OKR",
+      description: "Recolecta todas las fuentes y genera el Excel consolidado",
+      inputSchema: { runId: z.string() },
+    },
+    async ({ runId }) => generateOKR(runId)
   )
 }
