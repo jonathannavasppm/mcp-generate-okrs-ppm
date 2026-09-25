@@ -23,6 +23,8 @@ export interface ProviderContext {
   projectName: string
   projectPath: string
   timeToCompare: string
+  projectIndex?: number
+  projectCount?: number
 }
 
 export interface DataProvider<TConfig = unknown> {

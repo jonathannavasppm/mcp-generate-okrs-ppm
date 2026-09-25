@@ -5,6 +5,7 @@ import fs from "node:fs/promises"
 import { registry } from "../core/provider-registry.js"
 import { loadProjects, loadExcelEnv } from "../core/config-loader.js"
 import { loadState, requireStepOk } from "../core/pipeline-state.js"
+import { writeNpmAuditEvidence } from "../providers/npm-audit/provider.js"
 import type { DataProvider, ProviderContext, ToolResponse } from "../types/types.ts"
 
 interface StepResult {
@@ -35,6 +36,43 @@ async function resolveMasterOutputPath(baseDir: string): Promise<string> {
   return path.join(runDir, `reporte-okr-${dd}-${mm}-${yyyy}.xlsx`)
 }
 
+
+
+async function runProviderStep(
+  project: Record<string, unknown>,
+  provider: DataProvider,
+  ctx: ProviderContext,
+  workbook: ExcelJS.Workbook,
+  sharedReportEntries: Map<
+    string,
+    Array<{ ctx: ProviderContext; data: unknown }>
+  >
+): Promise<StepResult> {
+  const stepLabel = `${ctx.projectName}/${provider.key}`
+  try {
+    const rawConfig: unknown = project[provider.key]
+    const config = provider.configSchema.parse(rawConfig)
+    const data = await provider.fetchData(config, ctx)
+
+    const sheet = workbook.getWorksheet(provider.excelSheetName)
+    if (!sheet)
+      throw new Error(
+        `Tab "${provider.excelSheetName}" no existe en la plantilla`
+      )
+    provider.writeToExcel(sheet, data, ctx)
+
+    if (provider.buildSharedDetailReport) {
+      const list = sharedReportEntries.get(provider.key) ?? []
+      list.push({ ctx, data })
+      sharedReportEntries.set(provider.key, list)
+    }
+    return { step: stepLabel, ok: true }
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error)
+    return { step: stepLabel, ok: false, error: message }
+  }
+}
+
 export async function generateOKR(runId: string): Promise<ToolResponse> {
   const state = await loadState(runId)
   requireStepOk(state, "verifyConfig")
@@ -52,7 +90,7 @@ export async function generateOKR(runId: string): Promise<ToolResponse> {
     Array<{ ctx: ProviderContext; data: unknown }>
   >()
 
-  for (const project of projects) {
+  for (const [projectIndex, project] of projects.entries()) {
     const providers = registry
       .getEnabledFor(project)
       .slice()
@@ -62,37 +100,22 @@ export async function generateOKR(runId: string): Promise<ToolResponse> {
       )
 
     for (const provider of providers) {
-      const stepLabel = `${project.name}/${provider.key}`
       const ctx: ProviderContext = {
         projectName: project.name,
         projectPath: project.path,
         timeToCompare: project.timeToCompare,
+        projectIndex,
+        projectCount: projects.length,
       }
-      try {
-        const rawConfig: unknown = (
-          project as unknown as Record<string, unknown>
-        )[provider.key]
-        const config = provider.configSchema.parse(rawConfig)
-        const data = await provider.fetchData(config, ctx)
-
-        const sheet = workbook.getWorksheet(provider.excelSheetName)
-        if (!sheet)
-          throw new Error(
-            `Tab "${provider.excelSheetName}" no existe en la plantilla`
-          )
-        provider.writeToExcel(sheet, data, ctx)
-
-        if (provider.buildSharedDetailReport) {
-          const list = sharedReportEntries.get(provider.key) ?? []
-          list.push({ ctx, data })
-          sharedReportEntries.set(provider.key, list)
-        }
-        stepResults.push({ step: stepLabel, ok: true })
-      } catch (error: unknown) {
-        const message = error instanceof Error ? error.message : String(error)
-        stepResults.push({ step: stepLabel, ok: false, error: message })
-        continue
-      }
+      stepResults.push(
+        await runProviderStep(
+          project as unknown as Record<string, unknown>,
+          provider,
+          ctx,
+          workbook,
+          sharedReportEntries
+        )
+      )
     }
   }
 
@@ -109,18 +132,14 @@ export async function generateOKR(runId: string): Promise<ToolResponse> {
     )
   }
 
-  const vulSheet = workbook.getWorksheet("Vul")
-  if (vulSheet && detailReportPaths["npm-audit"]) {
-    const relativePath = path.relative(
-      runOutputDir,
-      detailReportPaths["npm-audit"]
+  const npmAuditDetail = detailReportPaths["npm-audit"]
+  if (npmAuditDetail) {
+    writeNpmAuditEvidence(
+      workbook,
+      sharedReportEntries.get("npm-audit") ?? [],
+      npmAuditDetail,
+      runOutputDir
     )
-    let linkRow = 2
-    while (vulSheet.getCell(linkRow, 1).value != null) linkRow++
-    vulSheet.getCell(linkRow, 1).value = {
-      text: "Ver detalle de vulnerabilidades por proyecto",
-      hyperlink: relativePath,
-    }
   }
 
   await workbook.xlsx.writeFile(masterOutputPath)

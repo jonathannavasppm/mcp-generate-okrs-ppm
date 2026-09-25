@@ -14,9 +14,35 @@ function asDependencyRows(data: unknown): DependencyRow[] {
   return data as DependencyRow[]
 }
 
+const KPI5 = {
+  headerRow: 4,
+  totalRow: 5,
+  withSupportRow: 6,
+  noSupportRow: 7,
+  percentRow: 11,
+  averageRow: 12,
+  startCol: 2, // columna B
+  stride: 3, // valor + anotación + separación
+} as const
+
+export function kpi5ValueColumn(index: number): number {
+  return KPI5.startCol + index * KPI5.stride
+}
+
+function colLetter(col: number): string {
+  let letter = ""
+  let n = col
+  while (n > 0) {
+    const rem = (n - 1) % 26
+    letter = String.fromCodePoint(65 + rem) + letter
+    n = Math.floor((n - 1) / 26)
+  }
+  return letter
+}
+
 export const npmAuditProvider: DataProvider<NpmAuditConfig> = {
   key: "npm-audit",
-  excelSheetName: "Vul",
+  excelSheetName: "KPI5_Componentes",
   configSchema: NpmAuditConfigSchema,
 
   async validateAccess(_config, ctx): Promise<ValidationResult> {
@@ -37,16 +63,46 @@ export const npmAuditProvider: DataProvider<NpmAuditConfig> = {
 
   writeToExcel(sheet, data, ctx: ProviderContext): void {
     const deps = asDependencyRows(data)
-    const vulnerableCount = deps.filter((d) => d.hasVulnerabilities).length
-    const deprecatedCount = deps.filter((d) => d.isDeprecated).length
+    const withSupportCount = deps.filter(
+      (d) => d.supportStatus === "Actualizada" || d.supportStatus === "Desactualizada"
+    ).length
 
-    let row = 2
-    while (sheet.getCell(row, 1).value != null) row++
+    const index = ctx.projectIndex ?? 0
+    const count = ctx.projectCount ?? index + 1
+    const col = KPI5.startCol + index * KPI5.stride
+    const letter = colLetter(col)
 
-    sheet.getCell(row, 1).value = ctx.projectName
-    sheet.getCell(row, 2).value = deps.length
-    sheet.getCell(row, 3).value = vulnerableCount
-    sheet.getCell(row, 4).value = deprecatedCount
+    sheet.getCell(KPI5.headerRow, col).value = ctx.projectName
+    sheet.getCell(KPI5.totalRow, col).value = deps.length
+    sheet.getCell(KPI5.withSupportRow, col).value = withSupportCount
+    sheet.getCell(KPI5.noSupportRow, col).value = {
+      formula: `${letter}${KPI5.totalRow}-${letter}${KPI5.withSupportRow}`,
+    }
+    sheet.getCell(KPI5.percentRow, col).value = {
+      formula:
+        `IF(${letter}${KPI5.totalRow}=0,0,` +
+        `${letter}${KPI5.withSupportRow}/${letter}${KPI5.totalRow}*100)`,
+    }
+
+    const annotationCol = col + 1
+    sheet.getCell(KPI5.totalRow, annotationCol).value = "Conteo total"
+    sheet.getCell(KPI5.withSupportRow, annotationCol).value =
+      "Componentes actualizados"
+    sheet.getCell(KPI5.noSupportRow, annotationCol).value =
+      "Se calcula automáticamente"
+    sheet.getCell(KPI5.percentRow, annotationCol).value = "Meta: ≥90%"
+
+    if (index === count - 1) {
+      const percentCells = Array.from({ length: count }, (_, i) =>
+        `${colLetter(KPI5.startCol + i * KPI5.stride)}${KPI5.percentRow}`
+      ).join(",")
+
+      sheet.getCell(KPI5.averageRow, 1).value = "Promedio"
+      sheet.getCell(KPI5.averageRow, KPI5.startCol).value = {
+        formula: `AVERAGE(${percentCells})`,
+      }
+      sheet.getCell(KPI5.averageRow, KPI5.startCol + 1).value = "Meta: ≥90%"
+    }
   },
 
   async buildSharedDetailReport(entries, runOutputDir): Promise<string> {
@@ -95,4 +151,48 @@ export const npmAuditProvider: DataProvider<NpmAuditConfig> = {
     await workbook.xlsx.writeFile(outputPath)
     return outputPath
   },
+}
+
+export function writeNpmAuditEvidence(
+  workbook: ExcelJS.Workbook,
+  entries: Array<{ ctx: ProviderContext; data: unknown }>,
+  detailPath: string,
+  runOutputDir: string
+): void {
+  const sheet = workbook.getWorksheet(npmAuditProvider.excelSheetName)
+  if (!sheet) return
+
+  let inventoryRow = 0
+  let auditRow = 0
+  let packageRow = 0
+  sheet.eachRow((row, rowNumber) => {
+    const label = row.getCell(1).value
+    if (typeof label !== "string") return
+    if (label.startsWith("Inventario completo")) inventoryRow = rowNumber
+    if (label.startsWith("npm audit")) auditRow = rowNumber
+    if (label.startsWith("package.json")) packageRow = rowNumber
+  })
+
+  const detailRelative = path.relative(runOutputDir, detailPath)
+  if (inventoryRow) {
+    sheet.getCell(inventoryRow, KPI5.startCol).value = {
+      text: path.basename(detailPath),
+      hyperlink: detailRelative,
+    }
+  }
+
+  for (const { ctx } of entries) {
+    const col = kpi5ValueColumn(ctx.projectIndex ?? 0)
+    const tabName = ctx.projectName.slice(0, 31)
+    if (auditRow) {
+      sheet.getCell(auditRow, col).value = {
+        formula:
+          `HYPERLINK("${detailRelative}#'${tabName}'!A1",` +
+          `"${ctx.projectName}")`,
+      }
+    }
+    if (packageRow) {
+      sheet.getCell(packageRow, col).value = "[Pegar link OneDrive]"
+    }
+  }
 }
