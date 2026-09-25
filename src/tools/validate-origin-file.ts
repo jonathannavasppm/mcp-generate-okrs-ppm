@@ -31,6 +31,7 @@ export async function validateOriginFile(runId: string): Promise<ToolResponse> {
       const result = await provider.validateAccess(config, {
         projectName: project.name,
         projectPath: project.path,
+        timeToCompare: project.timeToCompare,
       })
       if (!result.ok) {
         errors.push(`[${project.name}/${provider.key}] ${result.detail ?? "sin acceso"}`)

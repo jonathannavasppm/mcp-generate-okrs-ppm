@@ -29,4 +29,5 @@ export interface NpmRegistryPackument {
 export interface RegistryMetadata {
   deprecated: boolean
   lastPublishedDate: string | null
+  latestPublishedDate: string | null
 }

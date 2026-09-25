@@ -32,7 +32,7 @@ export const npmAuditProvider: DataProvider<NpmAuditConfig> = {
   },
 
   async fetchData(_config, ctx): Promise<DependencyRow[]> {
-    return collectDependencyData(ctx.projectPath)
+    return collectDependencyData(ctx.projectPath, ctx.timeToCompare)
   },
 
   writeToExcel(sheet, data, ctx: ProviderContext): void {
@@ -59,14 +59,15 @@ export const npmAuditProvider: DataProvider<NpmAuditConfig> = {
       const deps = asDependencyRows(entry.data)
       const sheet = workbook.addWorksheet(entry.ctx.projectName.slice(0, 31))
       sheet.addRow([
-        "Package",
-        "Dependency Type",
-        "Declared Version",
-        "Installed Version",
-        "Latest Version",
-        "Deprecated",
-        "Vulnerable",
-        "Last Updated",
+        "Librería",
+        "Tipo de dependencia",
+        "Version declarada",
+        "Version instalada",
+        "Version más reciente",
+        "¿Está deprecada?",
+        "¿Tiene vulnerabilidades?",
+        "Última actualización",
+        "Estado",
       ])
       for (const dep of deps) {
         sheet.addRow([
@@ -78,6 +79,7 @@ export const npmAuditProvider: DataProvider<NpmAuditConfig> = {
           dep.isDeprecated ? "Sí" : "No",
           dep.hasVulnerabilities ? "Sí" : "No",
           dep.lastPublishedDate ?? "N/D",
+          dep.supportStatus,
         ])
       }
     }

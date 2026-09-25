@@ -4,6 +4,12 @@ function isNpmRegistryPackument(value: unknown): value is NpmRegistryPackument {
   return typeof value === "object" && value !== null
 }
 
+const EMPTY_METADATA: RegistryMetadata = {
+  deprecated: false,
+  lastPublishedDate: null,
+  latestPublishedDate: null,
+}
+
 export async function fetchRegistryMetadata(
   packageName: string,
   version: string
@@ -12,11 +18,10 @@ export async function fetchRegistryMetadata(
     const response = await fetch(
       `https://registry.npmjs.org/${encodeURIComponent(packageName)}`
     )
-    if (!response.ok) return { deprecated: false, lastPublishedDate: null }
+    if (!response.ok) return { ...EMPTY_METADATA }
 
     const json: unknown = await response.json()
-    if (!isNpmRegistryPackument(json))
-      return { deprecated: false, lastPublishedDate: null }
+    if (!isNpmRegistryPackument(json)) return { ...EMPTY_METADATA }
 
     const latestTag = json["dist-tags"]?.latest
     const versionInfo = json.versions?.[version]
@@ -26,9 +31,13 @@ export async function fetchRegistryMetadata(
       Boolean(versionInfo?.deprecated) || Boolean(latestInfo?.deprecated)
     const lastPublishedDate =
       json.time?.[version] ?? json.time?.modified ?? null
+    const latestPublishedDate =
+      (latestTag ? json.time?.[latestTag] : undefined) ??
+      json.time?.modified ??
+      null
 
-    return { deprecated, lastPublishedDate }
+    return { deprecated, lastPublishedDate, latestPublishedDate }
   } catch {
-    return { deprecated: false, lastPublishedDate: null }
+    return { ...EMPTY_METADATA }
   }
 }

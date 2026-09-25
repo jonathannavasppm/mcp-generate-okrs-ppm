@@ -7,8 +7,8 @@ configurados y genera un reporte consolidado en Excel.
 ## Objetivo
 
 - Leer la configuración de proyectos desde la env `PROJECTS`
-  (`name`, `path`, `branch`, `timeToCompare` y bloques opcionales
-  por fuente).
+  (`name`, `path`, `branch`, `timeToCompare` — número de días,
+  ej. `"180"` — y bloques opcionales por fuente).
 - Exponer tools para **validar acceso** a cada fuente habilitada
   antes de correr la recolección.
 - Recolectar datos de cada fuente, por proyecto, de forma
@@ -43,10 +43,76 @@ haya pasado (estado compartido vía `core/pipeline-state.ts` con un
 ## Variables de entorno
 
 ```dotenv
-PROJECTS=[{"name":"...","path":"...","branch":"...","timeToCompare":"...","sonarqube":{...}}]
+PROJECTS=[{"name":"...","path":"...","branch":"...","timeToCompare":"180","sonarqube":{...}}]
 EXCEL_TEMPLATE_PATH=/ruta/al/reporte-base.xlsx
 EXCEL_OUTPUT_DIR=/ruta/reportes-generados
 ```
+
+`timeToCompare` se expresa en **días** (ej. `"180"`). Opcionalmente
+acepta el sufijo `days`/`días` (`"180 days"`). Se usa para clasificar
+el estado de soporte de cada dependencia en el reporte de
+vulnerabilidades:
+
+| Estado | Regla |
+|--------|-------|
+| `Deprecated` | Marcada como deprecated en el registry de npm |
+| `Sin soporte` | La versión `latest` se publicó hace más de `timeToCompare` días |
+| `Desactualizada` | `latest` es reciente pero la versión instalada es anterior |
+| `Actualizada` | Versión instalada igual a `latest` y dentro del periodo |
+| `Unknown` | El registry no devolvió fecha de publicación |
+
+### Bloques opcionales por fuente
+
+Cada proyecto puede habilitar fuentes con un bloque cuyo nombre es la
+key del provider y con `enabled: true`. Si el bloque no existe o
+`enabled` es `false`, la fuente se omite para ese proyecto.
+
+```dotenv
+PROJECTS=[
+  {
+    "name": "my-next-app",
+    "path": "/ruta/al/proyecto",
+    "branch": "develop",
+    "timeToCompare": "180",
+
+    "npm-audit": {
+      "enabled": true
+    },
+
+    "sonarqube": {
+      "enabled": true,
+      "baseUrl": "https://sonarqube.mi-empresa.com",
+      "projectKey": "my-next-app",
+      "metrics": ["coverage", "bugs", "vulnerabilities"],
+      "apiKeyEnv": "SONARQUBE_API_KEY"
+    },
+
+    "uptimeRobot": {
+      "enabled": true,
+      "apiKeyEnv": "UPTIMEROBOT_API_KEY",
+      "monitorIds": ["123456789"]
+    },
+
+    "jira": {
+      "enabled": true,
+      "baseUrl": "https://mi-empresa.atlassian.net",
+      "projectKey": "FE",
+      "apiKeyEnv": "JIRA_API_KEY"
+    }
+  }
+]
+```
+
+| Bloque | Estado | Campos |
+|--------|--------|--------|
+| `npm-audit` | ✅ Implementado | `enabled` |
+| `sonarqube` | ⏳ Pendiente | `enabled`, `baseUrl`, `projectKey`, `metrics`, `apiKeyEnv` |
+| `uptimeRobot` | ⏳ Pendiente | `enabled`, `apiKeyEnv`, `monitorIds` |
+| `jira` | ⏳ Pendiente | `enabled`, `baseUrl`, `projectKey`, `apiKeyEnv` |
+
+> `apiKeyEnv` es el **nombre** de la variable de entorno que contiene
+> el token (no el token en sí), para no commitear secretos en
+> `PROJECTS`.
 
 La salida se organiza por ejecución:
 `EXCEL_OUTPUT_DIR/Indicadores/<dd-MM-yyyy>/` con el Excel maestro en

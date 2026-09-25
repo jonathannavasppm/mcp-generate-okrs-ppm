@@ -66,6 +66,7 @@ export async function generateOKR(runId: string): Promise<ToolResponse> {
       const ctx: ProviderContext = {
         projectName: project.name,
         projectPath: project.path,
+        timeToCompare: project.timeToCompare,
       }
       try {
         const rawConfig: unknown = (

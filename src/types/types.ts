@@ -22,6 +22,7 @@ export interface ValidationResult {
 export interface ProviderContext {
   projectName: string
   projectPath: string
+  timeToCompare: string
 }
 
 export interface DataProvider<TConfig = unknown> {

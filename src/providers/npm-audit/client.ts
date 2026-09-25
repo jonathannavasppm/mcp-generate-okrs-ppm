@@ -1,7 +1,12 @@
 import fs from "node:fs/promises"
 import path from "node:path"
 import { execNpmJson } from "../../utils/exec.js"
+import { parseTimeToCompare } from "../../utils/time-compare.js"
 import { fetchRegistryMetadata } from "./registry-client.js"
+import {
+  classifySupportStatus,
+  type SupportStatus,
+} from "./support-status.js"
 import type { NpmAuditReport, NpmOutdatedReport } from "./types.js"
 
 export interface DependencyRow {
@@ -14,6 +19,7 @@ export interface DependencyRow {
   hasVulnerabilities: boolean
   vulnerabilitySeverity: string | null
   lastPublishedDate: string | null
+  supportStatus: SupportStatus
 }
 
 interface PackageJson {
@@ -34,8 +40,10 @@ async function readPackageJson(projectPath: string): Promise<PackageJson> {
 }
 
 export async function collectDependencyData(
-  projectPath: string
+  projectPath: string,
+  timeToCompare: string
 ): Promise<DependencyRow[]> {
+  const thresholdMs = parseTimeToCompare(timeToCompare)
   const packageJson = await readPackageJson(projectPath)
 
   const deps = Object.entries(packageJson.dependencies ?? {})
@@ -81,6 +89,13 @@ export async function collectDependencyData(
           hasVulnerabilities: Boolean(vulnerability),
           vulnerabilitySeverity: vulnerability?.severity ?? null,
           lastPublishedDate: registryMeta.lastPublishedDate,
+          supportStatus: classifySupportStatus({
+            deprecated: registryMeta.deprecated,
+            installedVersion,
+            latestVersion,
+            latestPublishedDate: registryMeta.latestPublishedDate,
+            thresholdMs,
+          }),
         }
       })
     )
