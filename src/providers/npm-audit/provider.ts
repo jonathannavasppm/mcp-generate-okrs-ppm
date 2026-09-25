@@ -138,6 +138,15 @@ export const npmAuditProvider: DataProvider<NpmAuditConfig> = {
           dep.supportStatus,
         ])
       }
+
+      try {
+        await fs.copyFile(
+          path.join(entry.ctx.projectPath, "package.json"),
+          path.join(vulDir, `${entry.ctx.projectName}-package.json`)
+        )
+      } catch {
+        // el usuario linkea manualmente; si falla la copia se omite
+      }
     }
 
     const now = new Date()
