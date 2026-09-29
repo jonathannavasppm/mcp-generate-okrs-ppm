@@ -89,8 +89,8 @@ PROJECTS=[
 
     "uptimeRobot": {
       "enabled": true,
-      "apiKeyEnv": "UPTIMEROBOT_API_KEY",
-      "monitorIds": ["123456789"]
+      "companyId": "AbC123XyZ9",
+      "projectId": "123456789"
     },
 
     "jira": {
@@ -107,12 +107,28 @@ PROJECTS=[
 |--------|--------|--------|
 | `npm-audit` | ✅ Implementado | `enabled` |
 | `sonarqube` | ⏳ Pendiente | `enabled`, `baseUrl`, `projectKey`, `metrics`, `apiKeyEnv` |
-| `uptimeRobot` | ⏳ Pendiente | `enabled`, `apiKeyEnv`, `monitorIds` |
+| `uptimeRobot` | ✅ Implementado | `enabled`, `companyId`, `projectId` |
 | `jira` | ⏳ Pendiente | `enabled`, `baseUrl`, `projectKey`, `apiKeyEnv` |
 
 > `apiKeyEnv` es el **nombre** de la variable de entorno que contiene
 > el token (no el token en sí), para no commitear secretos en
-> `PROJECTS`.
+> `PROJECTS`. UptimeRobot no necesita token: `companyId` y `projectId`
+> corresponden a los segmentos de una página pública como
+> `https://stats.uptimerobot.com/AbC123XyZ9/123456789`.
+
+### UptimeRobot multiproyecto
+
+Cada proyecto habilitado consulta el endpoint público que utiliza el portal:
+`/api/getMonitor/{companyId}?m={projectId}`. En
+`KPI4_Disponibilidad` se crea o reutiliza un bloque horizontal por proyecto,
+en el orden definido en `PROJECTS`. El porcentaje mensual se calcula con los
+ratios diarios del mes calendario; `30dRatio` no se usa porque es una ventana
+móvil.
+
+El reporte incluye horas totales e indisponibles, disponibilidad, incidentes
+y enlaces a la página pública y al Excel de detalle. El endpoint público no es
+una API oficial versionada, por lo que el provider valida su respuesta y
+reporta un error si UptimeRobot cambia el contrato.
 
 La salida se organiza por ejecución:
 `EXCEL_OUTPUT_DIR/Indicadores/<dd-MM-yyyy>/` con el Excel maestro en
@@ -130,7 +146,7 @@ subcarpetas.
 | **5** | Tool de validación end-to-end con SonarQube. | Invocar la tool devuelve el reporte esperado. | ⏳ Parcial (estructura lista, falta provider real) |
 | **5.5** | `core/pipeline-state.ts` + tools `verifyConfig` / `validateOriginFile` encadenadas por `runId`, y `generateOKR` con orden explícito de pasos y `continue`-on-error. | Las tools rechazan ejecutarse si el paso anterior no corrió o falló. | ✅ Completada (verifyConfig + validateOriginFile operativas) |
 | **6** | `core/excel-builder.ts` + tool `generateOKR` que orquesta la recolección y genera el `.xlsx` desde `EXCEL_TEMPLATE_PATH` hacia `EXCEL_OUTPUT_DIR/Indicadores/<dd-MM-yyyy>/`. | Se genera un Excel con al menos una sección real sin modificar la plantilla. | ⏳ Pendiente (`excel-builder.ts` vacío) |
-| **7** | Agregar UptimeRobot, Jira y npm-audit siguiendo el mismo patrón, uno a la vez. | Cada uno pasa sus propios tests antes de integrar el siguiente. | ⏳ Pendiente |
+| **7** | Agregar UptimeRobot, Jira y npm-audit siguiendo el mismo patrón, uno a la vez. | Cada uno pasa sus propios tests antes de integrar el siguiente. | 🔶 UptimeRobot y npm-audit implementados; Jira pendiente |
 | **8** | Manejo de errores transversal: branch mismatch, rate limiting, timeouts por fuente. | Un fallo en una fuente no detiene el reporte completo. | ⏳ Pendiente |
 | **9** | Documentación: README con configuración de `PROJECTS` y checklist "cómo agregar una fuente nueva". | Alguien nuevo puede agregar un provider siguiendo solo el README. | ⏳ Pendiente |
 
