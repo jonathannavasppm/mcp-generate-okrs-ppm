@@ -43,9 +43,9 @@ export const registerTools = (server: McpServer) => {
   server.registerTool(
     "analyzeJiraSprints",
     {
-      title: "Analizar Sprints de Jira",
+      title: "Generar Indicador de Cumplimiento (Jira)",
       description:
-        "Calcula puntos de historia de HU comprometidos vs cumplidos para sprints cerrados durante el último mes o un mes específico",
+        "Calcula el cumplimiento de Sprints de Jira (KPI6) y genera automáticamente el archivo de Excel en la ruta configurada (EXCEL_OUTPUT_DIR) usando la plantilla",
       inputSchema: z.object({
         projectName: z
           .string()

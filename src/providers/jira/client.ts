@@ -14,38 +14,46 @@ interface ResolvedAuth {
   headers: Record<string, string>
 }
 
+function cleanEnvString(val?: string): string {
+  if (!val) return ""
+  return val.trim().replace(/^["']|["']$/g, "").trim()
+}
+
 export function resolveJiraAuth(config: JiraConfig): ResolvedAuth {
-  const rawUrl =
+  const rawUrl = cleanEnvString(
     config.url ||
     config.baseUrl ||
     process.env.JIRA_URL ||
     process.env.JIRA_BASE_URL ||
     "https://qphcorp.atlassian.net"
+  )
   const baseUrl = rawUrl.replace(/\/+$/, "")
 
-  const token =
+  const token = cleanEnvString(
     config.token ||
     (config.apiKeyEnv ? process.env[config.apiKeyEnv] : undefined) ||
     process.env.JIRA_API_TOKEN ||
     process.env.JIRA_TOKEN ||
     ""
+  )
 
-  const email =
+  const email = cleanEnvString(
     config.email ||
     (config.emailEnv ? process.env[config.emailEnv] : undefined) ||
     process.env.JIRA_EMAIL ||
     ""
+  )
 
   let authHeader = ""
   if (email && token) {
-    const credentials = Buffer.from(`${email.trim()}:${token.trim()}`).toString("base64")
+    const credentials = Buffer.from(`${email}:${token}`).toString("base64")
     authHeader = `Basic ${credentials}`
   } else if (token.startsWith("Basic ") || token.startsWith("Bearer ")) {
-    authHeader = token.trim()
+    authHeader = token
   } else if (token.includes(":")) {
-    authHeader = `Basic ${Buffer.from(token.trim()).toString("base64")}`
+    authHeader = `Basic ${Buffer.from(token).toString("base64")}`
   } else if (token) {
-    authHeader = `Bearer ${token.trim()}`
+    authHeader = `Bearer ${token}`
   }
 
   const headers: Record<string, string> = {
@@ -179,10 +187,14 @@ export async function findBoard(
     }
   }
 
-  const boardsRes = await jiraFetch<{ values: JiraBoard[] }>(
-    `${baseUrl}/rest/agile/1.0/board?maxResults=50`,
-    headers
-  )
+  const boardsRes = await jiraFetch<{ values: JiraBoard[] }>({
+    baseUrl,
+  } as unknown as string, headers).catch(async () => {
+    return await jiraFetch<{ values: JiraBoard[] }>(
+      `${baseUrl}/rest/agile/1.0/board?maxResults=50`,
+      headers
+    )
+  })
 
   if (!boardsRes.values || boardsRes.values.length === 0) {
     throw new Error(`No se encontraron boards de Jira en ${baseUrl}`)
@@ -351,28 +363,82 @@ export function extractStoryPoints(
   return 0
 }
 
-export function isIssueCompleted(issue: JiraIssue): boolean {
+export function isIssueCompleted(
+  issue: JiraIssue,
+  sprintCompleteDate?: string
+): boolean {
   const statusCategory = (
     issue.fields.status?.statusCategory?.key || ""
   ).toLowerCase()
-  const statusName = (issue.fields.status?.name || "").trim().toLowerCase()
+  const statusName = (issue.fields.status?.name || "").trim().toUpperCase()
+  const resolutionName = (
+    (issue.fields.resolution as { name?: string } | undefined)?.name || ""
+  ).trim().toUpperCase()
 
-  return (
+  // 1. Excluir explícitamente estados o resoluciones de cancelación / descarte / won't do / rechazo
+  const canceledKeywords = [
+    "CANCEL",
+    "WON'T DO",
+    "WONT DO",
+    "RECHAZAD",
+    "DESCARTAD",
+    "DUPLICAT",
+    "INCOMPLETE",
+    "NO SE HACE",
+  ]
+  if (
+    canceledKeywords.some(
+      (k) => statusName.includes(k) || resolutionName.includes(k)
+    )
+  ) {
+    return false
+  }
+
+  // 2. Verificar que pertenezca a la categoría 'done' o nombres de estado completados
+  const isDoneCategory =
     statusCategory === "done" ||
     [
-      "done",
-      "cerrado",
-      "cerrada",
-      "resuelto",
-      "resuelta",
-      "finalizado",
-      "finalizada",
-      "completado",
-      "completada",
-      "closed",
-      "resolved",
+      "DONE",
+      "LISTO",
+      "CERRADO",
+      "CERRADA",
+      "RESUELTO",
+      "RESUELTA",
+      "FINALIZADO",
+      "FINALIZADA",
+      "COMPLETADO",
+      "COMPLETADA",
+      "CLOSED",
+      "RESOLVED",
     ].includes(statusName)
-  )
+
+  if (!isDoneCategory) return false
+
+  // 3. Si tiene fecha de resolución y fecha de cierre del sprint:
+  // la resolución debe haber ocurrido antes o al momento del cierre del sprint (con 10 min de tolerancia).
+  // Si se resolvió después en otro sprint posterior, no cuenta como cumplida para este sprint.
+  if (issue.fields.resolutiondate && sprintCompleteDate) {
+    const resTime = new Date(issue.fields.resolutiondate).getTime()
+    const sprintEndTime = new Date(sprintCompleteDate).getTime()
+    if (resTime > sprintEndTime + 10 * 60 * 1000) {
+      return false
+    }
+  }
+
+  return true
+}
+
+export function formatSprintName(rawName: string): string {
+  const sprintNumMatch = rawName.match(/sprint\s*(\d+)/i)
+  if (sprintNumMatch) {
+    return `Sprint ${sprintNumMatch[1]}`
+  }
+  const justNumMatch = rawName.match(/\d+/)
+  if (justNumMatch) {
+    return `Sprint ${justNumMatch[0]}`
+  }
+  const clean = rawName.replace(/scrum\s*/gi, "").trim()
+  return clean.toLowerCase().startsWith("sprint") ? clean : `Sprint ${clean}`
 }
 
 export async function getSprintIssues(
@@ -419,10 +485,11 @@ export async function analyzeSprint(
   let committedStoryPoints = 0
   let completedStoryPoints = 0
   const storyDetails: JiraStoryDetail[] = []
+  const sprintClosureDate = sprint.completeDate || sprint.endDate
 
   for (const story of stories) {
     const points = extractStoryPoints(story, storyPointField)
-    const completed = isIssueCompleted(story)
+    const completed = isIssueCompleted(story, sprintClosureDate)
 
     committedStoryPoints += points
     if (completed) {
@@ -447,7 +514,7 @@ export async function analyzeSprint(
 
   return {
     sprintId: sprint.id,
-    sprintName: sprint.name,
+    sprintName: formatSprintName(sprint.name),
     startDate: sprint.startDate,
     endDate: sprint.endDate,
     completeDate: sprint.completeDate,

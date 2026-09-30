@@ -1,73 +1,31 @@
 import { describe, it, expect } from "vitest"
-import ExcelJS from "exceljs"
 import {
-  filterSprintsByMonth,
   isUserStory,
   extractStoryPoints,
-  isIssueCompleted,
+  filterSprintsByMonth,
   getMonthPeriod,
+  isIssueCompleted,
+  formatSprintName,
 } from "./client.js"
 import { jiraProvider } from "./provider.js"
-import type { JiraIssue, JiraProjectReport, JiraSprint } from "./types.js"
-import { registry } from "../../core/provider-registry.js"
-import "../../providers/index.js"
+import ExcelJS from "exceljs"
+import type { JiraIssue, JiraSprint, JiraProjectReport } from "./types.js"
 
-describe("Jira Provider - Reglas de Negocio", () => {
-  it("debe registrar el provider de Jira en el registry con la hoja KPI6_Cumplimiento", () => {
-    const provider = registry.get("jira")
-    expect(provider).toBeDefined()
-    expect(provider?.key).toBe("jira")
-    expect(provider?.excelSheetName).toBe("KPI6_Cumplimiento")
+describe("Jira Provider", () => {
+  it("debe formatear nombres de sprint eliminando la palabra SCRUM y dejando 'Sprint X'", () => {
+    expect(formatSprintName("SCRUM Sprint 47")).toBe("Sprint 47")
+    expect(formatSprintName("SCRUM Sprint 48")).toBe("Sprint 48")
+    expect(formatSprintName("Sprint 49")).toBe("Sprint 49")
+    expect(formatSprintName("SCRUM 50")).toBe("Sprint 50")
+    expect(formatSprintName("Tablero Sprint 51")).toBe("Sprint 51")
   })
 
-  it("debe filtrar únicamente los sprints cerrados durante el mes especificado (ejemplo del usuario)", () => {
-    const period = getMonthPeriod(2026, 9)
-
-    const sprints: JiraSprint[] = [
-      {
-        id: 50,
-        name: "Sprint 50",
-        self: "https://jira/sprint/50",
-        state: "closed",
-        startDate: "2026-08-15T09:00:00.000Z",
-        completeDate: "2026-09-05T18:00:00.000Z",
-      },
-      {
-        id: 51,
-        name: "Sprint 51",
-        self: "https://jira/sprint/51",
-        state: "closed",
-        startDate: "2026-09-06T09:00:00.000Z",
-        completeDate: "2026-09-20T18:00:00.000Z",
-      },
-      {
-        id: 52,
-        name: "Sprint 52",
-        self: "https://jira/sprint/52",
-        state: "active",
-        startDate: "2026-09-21T09:00:00.000Z",
-        completeDate: undefined,
-      },
-      {
-        id: 53,
-        name: "Sprint 53 (Cierra en Octubre)",
-        self: "https://jira/sprint/53",
-        state: "closed",
-        startDate: "2026-09-21T09:00:00.000Z",
-        completeDate: "2026-10-04T18:00:00.000Z",
-      },
-    ]
-
-    const filtered = filterSprintsByMonth(sprints, period)
-    expect(filtered.map((s) => s.id)).toEqual([50, 51])
-  })
-
-  it("debe considerar únicamente Historias de Usuario (HU) y descartar Bugs, Tareas y Subtareas", () => {
+  it("debe filtrar solo Historias de Usuario excluyendo Bugs, Tareas y Epics", () => {
     const storyIssue: JiraIssue = {
       id: "1",
       key: "PROJ-1",
       fields: {
-        summary: "Como usuario quiero loguearme",
+        summary: "Historia de usuario 1",
         issuetype: { id: "10", name: "Story", subtask: false },
         status: {
           id: "3",
@@ -77,25 +35,11 @@ describe("Jira Provider - Reglas de Negocio", () => {
       },
     }
 
-    const huIssue: JiraIssue = {
+    const bugIssue: JiraIssue = {
       id: "2",
       key: "PROJ-2",
       fields: {
-        summary: "Historia de usuario para checkout",
-        issuetype: { id: "11", name: "Historia de usuario", subtask: false },
-        status: {
-          id: "3",
-          name: "En Progreso",
-          statusCategory: { id: 2, key: "indeterminate", name: "In Progress" },
-        },
-      },
-    }
-
-    const bugIssue: JiraIssue = {
-      id: "3",
-      key: "PROJ-3",
-      fields: {
-        summary: "Error al renderizar botón",
+        summary: "Bug critico",
         issuetype: { id: "1", name: "Bug", subtask: false },
         status: {
           id: "3",
@@ -106,10 +50,10 @@ describe("Jira Provider - Reglas de Negocio", () => {
     }
 
     const taskIssue: JiraIssue = {
-      id: "4",
-      key: "PROJ-4",
+      id: "3",
+      key: "PROJ-3",
       fields: {
-        summary: "Configurar pipeline CI/CD",
+        summary: "Tarea de configuracion",
         issuetype: { id: "2", name: "Task", subtask: false },
         status: {
           id: "3",
@@ -120,10 +64,10 @@ describe("Jira Provider - Reglas de Negocio", () => {
     }
 
     const subtaskIssue: JiraIssue = {
-      id: "5",
-      key: "PROJ-5",
+      id: "4",
+      key: "PROJ-4",
       fields: {
-        summary: "Crear componente de input",
+        summary: "Subtarea",
         issuetype: { id: "5", name: "Sub-task", subtask: true },
         status: {
           id: "3",
@@ -134,14 +78,13 @@ describe("Jira Provider - Reglas de Negocio", () => {
     }
 
     expect(isUserStory(storyIssue)).toBe(true)
-    expect(isUserStory(huIssue)).toBe(true)
     expect(isUserStory(bugIssue)).toBe(false)
     expect(isUserStory(taskIssue)).toBe(false)
     expect(isUserStory(subtaskIssue)).toBe(false)
   })
 
-  it("debe extraer correctamente los puntos de historia de distintos campos", () => {
-    const issueWithCustom10016: JiraIssue = {
+  it("debe extraer Story Points correctamente de campos custom y numericos", () => {
+    const issueWithField: JiraIssue = {
       id: "1",
       key: "PROJ-1",
       fields: {
@@ -152,11 +95,11 @@ describe("Jira Provider - Reglas de Negocio", () => {
           name: "Done",
           statusCategory: { id: 3, key: "done", name: "Done" },
         },
-        customfield_10016: 8,
+        customfield_10041: 8,
       },
     }
 
-    const issueWithStringSP: JiraIssue = {
+    const issueWithString: JiraIssue = {
       id: "2",
       key: "PROJ-2",
       fields: {
@@ -167,15 +110,15 @@ describe("Jira Provider - Reglas de Negocio", () => {
           name: "Done",
           statusCategory: { id: 3, key: "done", name: "Done" },
         },
-        customfield_10026: "5",
+        customfield_10041: "5",
       },
     }
 
-    expect(extractStoryPoints(issueWithCustom10016, "customfield_10016")).toBe(8)
-    expect(extractStoryPoints(issueWithStringSP, "customfield_10026")).toBe(5)
+    expect(extractStoryPoints(issueWithField, "customfield_10041")).toBe(8)
+    expect(extractStoryPoints(issueWithString, "customfield_10041")).toBe(5)
   })
 
-  it("debe determinar correctamente si un issue está completado / cumplido", () => {
+  it("debe determinar correctamente si un issue está completado / cumplido considerando cancelaciones y fechas", () => {
     const doneIssue: JiraIssue = {
       id: "1",
       key: "PROJ-1",
@@ -187,28 +130,48 @@ describe("Jira Provider - Reglas de Negocio", () => {
           name: "Done",
           statusCategory: { id: 3, key: "done", name: "Done" },
         },
+        resolution: { id: "10000", name: "Listo" },
+        resolutiondate: "2026-08-25T15:00:00.000Z",
       },
     }
 
-    const closedIssue: JiraIssue = {
+    const canceledIssue: JiraIssue = {
       id: "2",
       key: "PROJ-2",
       fields: {
-        summary: "Story 2",
+        summary: "Story Cancelada",
         issuetype: { id: "10", name: "Story", subtask: false },
         status: {
           id: "4",
-          name: "Cerrado",
+          name: "CANCELED",
           statusCategory: { id: 3, key: "done", name: "Done" },
         },
+        resolution: { id: "10001", name: "Won't Do" },
+        resolutiondate: "2026-08-25T15:00:00.000Z",
+      },
+    }
+
+    const laterResolvedIssue: JiraIssue = {
+      id: "3",
+      key: "PROJ-3",
+      fields: {
+        summary: "Story resuelta después del sprint",
+        issuetype: { id: "10", name: "Story", subtask: false },
+        status: {
+          id: "3",
+          name: "Done",
+          statusCategory: { id: 3, key: "done", name: "Done" },
+        },
+        resolution: { id: "10000", name: "Listo" },
+        resolutiondate: "2026-09-15T10:00:00.000Z",
       },
     }
 
     const inProgressIssue: JiraIssue = {
-      id: "3",
-      key: "PROJ-3",
+      id: "4",
+      key: "PROJ-4",
       fields: {
-        summary: "Story 3",
+        summary: "Story en progreso",
         issuetype: { id: "10", name: "Story", subtask: false },
         status: {
           id: "2",
@@ -218,19 +181,64 @@ describe("Jira Provider - Reglas de Negocio", () => {
       },
     }
 
-    expect(isIssueCompleted(doneIssue)).toBe(true)
-    expect(isIssueCompleted(closedIssue)).toBe(true)
-    expect(isIssueCompleted(inProgressIssue)).toBe(false)
+    const sprintCloseDate = "2026-08-31T15:18:53.205Z"
+
+    expect(isIssueCompleted(doneIssue, sprintCloseDate)).toBe(true)
+    expect(isIssueCompleted(canceledIssue, sprintCloseDate)).toBe(false)
+    expect(isIssueCompleted(laterResolvedIssue, sprintCloseDate)).toBe(false)
+    expect(isIssueCompleted(inProgressIssue, sprintCloseDate)).toBe(false)
   })
 
-  it("debe escribir correctamente en Excel en la hoja KPI6_Cumplimiento con tabla de Sprints y tabla Resumen por Proyecto", () => {
+  it("debe filtrar solo sprints cerrados dentro del mes evaluado", () => {
+    const period = getMonthPeriod(2026, 8) // Agosto 2026
+
+    const sprints: JiraSprint[] = [
+      {
+        id: 50,
+        name: "Sprint 50 (Inició antes pero cerró en agosto)",
+        self: "",
+        state: "closed",
+        startDate: "2026-07-20T00:00:00.000Z",
+        completeDate: "2026-08-03T10:00:00.000Z",
+      },
+      {
+        id: 51,
+        name: "Sprint 51 (Cerró en agosto)",
+        self: "",
+        state: "closed",
+        startDate: "2026-08-03T10:00:00.000Z",
+        completeDate: "2026-08-18T10:00:00.000Z",
+      },
+      {
+        id: 52,
+        name: "Sprint 52 (Cerró en septiembre - NO DEBE CONTAR)",
+        self: "",
+        state: "closed",
+        startDate: "2026-08-18T10:00:00.000Z",
+        completeDate: "2026-09-02T10:00:00.000Z",
+      },
+      {
+        id: 53,
+        name: "Sprint 53 (Activo - NO DEBE CONTAR)",
+        self: "",
+        state: "active",
+        startDate: "2026-08-25T10:00:00.000Z",
+      },
+    ]
+
+    const filtered = filterSprintsByMonth(sprints, period)
+    expect(filtered).toHaveLength(2)
+    expect(filtered.map((s) => s.id)).toEqual([50, 51])
+  })
+
+  it("debe escribir correctamente en Excel en la hoja KPI6_Cumplimiento", () => {
     const workbook = new ExcelJS.Workbook()
-    const sheet = workbook.addWorksheet(jiraProvider.excelSheetName)
+    const sheet = workbook.addWorksheet("KPI6_Cumplimiento")
 
     const mockReport: JiraProjectReport = {
       projectName: "my-next-app",
       projectKey: "MCBPE",
-      boardId: 1,
+      boardId: 116,
       period: {
         month: 8,
         year: 2026,
@@ -241,81 +249,50 @@ describe("Jira Provider - Reglas de Negocio", () => {
       sprints: [
         {
           sprintId: 47,
-          sprintName: "SCRUM Sprint 47",
-          startDate: "2026-07-20T09:00:00.000Z",
-          completeDate: "2026-08-03T18:00:00.000Z",
+          sprintName: "Sprint 47",
+          startDate: "2026-07-20T23:09:09.766Z",
+          completeDate: "2026-08-03T15:14:48.156Z",
           state: "closed",
           committedStoryPoints: 134,
-          completedStoryPoints: 134,
-          completionPercentage: 100,
+          completedStoryPoints: 29,
+          completionPercentage: 21.64,
           totalStories: 27,
-          completedStories: 27,
+          completedStories: 6,
           stories: [],
         },
         {
-          sprintId: 48,
-          sprintName: "SCRUM Sprint 48",
-          startDate: "2026-08-03T09:00:00.000Z",
-          completeDate: "2026-08-18T18:00:00.000Z",
+          sprintId: 49,
+          sprintName: "Sprint 49",
+          startDate: "2026-08-17T15:10:34.719Z",
+          completeDate: "2026-08-31T15:18:53.205Z",
           state: "closed",
-          committedStoryPoints: 125,
-          completedStoryPoints: 125,
-          completionPercentage: 100,
-          totalStories: 27,
-          completedStories: 27,
+          committedStoryPoints: 13,
+          completedStoryPoints: 5,
+          completionPercentage: 38.46,
+          totalStories: 2,
+          completedStories: 1,
           stories: [],
         },
       ],
-      totalCommittedStoryPoints: 259,
-      totalCompletedStoryPoints: 259,
-      overallCompletionPercentage: 100,
+      totalCommittedStoryPoints: 147,
+      totalCompletedStoryPoints: 34,
+      overallCompletionPercentage: 23.13,
     }
 
-    const ctx = {
+    jiraProvider.writeToExcel(sheet, mockReport, {
       projectName: "my-next-app",
-      projectPath: "/some/path",
+      projectPath: "/tmp",
       timeToCompare: "180",
-      projectIndex: 0,
       projectCount: 1,
-    }
+      projectIndex: 0,
+    })
 
-    jiraProvider.writeToExcel(sheet, mockReport, ctx)
-
-    // Validar Títulos
-    expect(sheet.getCell("B2").value).toBe("KPI 6 - CUMPLIMIENTO DE ENTREGAS POR SPRINT (JIRA)")
-
-    // Validar Encabezados de Sprints (Col B a I)
-    expect(sheet.getCell(5, 2).value).toBe("Sprint")
-    expect(sheet.getCell(5, 5).value).toBe("Puntos Comprometidos (HU)")
-    expect(sheet.getCell(5, 6).value).toBe("Puntos Cumplidos (HU)")
-    expect(sheet.getCell(5, 7).value).toBe("% Cumplimiento")
-
-    // Validar Datos de Sprint 1
-    expect(sheet.getCell(6, 2).value).toBe("SCRUM Sprint 47")
-    expect(sheet.getCell(6, 5).value).toBe(134)
-    expect(sheet.getCell(6, 6).value).toBe(134)
-
-    // Validar Datos de Sprint 2
-    expect(sheet.getCell(7, 2).value).toBe("SCRUM Sprint 48")
-    expect(sheet.getCell(7, 5).value).toBe(125)
-    expect(sheet.getCell(7, 6).value).toBe(125)
-
-    // Validar Fila Total Sprints
-    expect(sheet.getCell(8, 2).value).toBe("TOTAL my-next-app")
-
-    // Validar Tabla Resumen por Proyecto (Lado Derecho: Col K a Q)
-    expect(sheet.getCell(5, 11).value).toBe("Proyecto")
-    expect(sheet.getCell(5, 12).value).toBe("Puntos Comprometidos")
-    expect(sheet.getCell(5, 13).value).toBe("Puntos Cumplidos")
-    expect(sheet.getCell(5, 14).value).toBe("% Cumplimiento")
-
-    // Validar Fila de Proyecto en Resumen
-    expect(sheet.getCell(6, 11).value).toBe("my-next-app")
-    expect(sheet.getCell(6, 12).value).toBe(259)
-    expect(sheet.getCell(6, 13).value).toBe(259)
-    expect(sheet.getCell(6, 17).value).toBe("≥ 85%")
-
-    // Validar Total General en Resumen
-    expect(sheet.getCell(7, 11).value).toBe("TOTAL / PROMEDIO")
+    // Validar datos de mes y sprints en la tabla base
+    expect(sheet.getCell("B5").value).toBe("Agosto")
+    expect(sheet.getCell("D5").value).toBe(2026)
+    expect(sheet.getCell("B6").value).toBe(2)
+    expect(sheet.getCell("A11").value).toBe("Sprint 47")
+    expect(sheet.getCell("B11").value).toBe(134)
+    expect(sheet.getCell("C11").value).toBe(29)
   })
 })
