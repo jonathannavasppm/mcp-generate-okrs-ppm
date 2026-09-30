@@ -7,6 +7,7 @@ import { loadProjects, loadExcelEnv } from "../core/config-loader.js"
 import { loadState, requireStepOk } from "../core/pipeline-state.js"
 import { writeNpmAuditEvidence } from "../providers/npm-audit/provider.js"
 import { writeUptimeRobotEvidence } from "../providers/uptime-robot/provider.js"
+import { writeJiraEvidence } from "../providers/jira/provider.js"
 import type { DataProvider, ProviderContext, ToolResponse } from "../types/types.ts"
 
 interface StepResult {
@@ -37,8 +38,6 @@ async function resolveMasterOutputPath(baseDir: string): Promise<string> {
   return path.join(runDir, `reporte-okr-${dd}-${mm}-${yyyy}.xlsx`)
 }
 
-
-
 async function runProviderStep(
   project: Record<string, unknown>,
   provider: DataProvider,
@@ -55,11 +54,10 @@ async function runProviderStep(
     const config = provider.configSchema.parse(rawConfig)
     const data = await provider.fetchData(config, ctx)
 
-    const sheet = workbook.getWorksheet(provider.excelSheetName)
-    if (!sheet)
-      throw new Error(
-        `Tab "${provider.excelSheetName}" no existe en la plantilla`
-      )
+    let sheet = workbook.getWorksheet(provider.excelSheetName)
+    if (!sheet) {
+      sheet = workbook.addWorksheet(provider.excelSheetName)
+    }
     provider.writeToExcel(sheet, data, ctx)
 
     if (provider.buildSharedDetailReport) {
@@ -163,6 +161,16 @@ export async function generateOKR(runId: string): Promise<ToolResponse> {
       sharedReportEntries.get("uptimeRobot") ?? [],
       uptimeRobotDetail,
       runOutputDir
+    )
+  }
+
+  const jiraDetail = detailReportPaths["jira"]
+  if (jiraDetail) {
+    writeJiraEvidence(
+        workbook,
+        sharedReportEntries.get("jira") ?? [],
+        jiraDetail,
+        runOutputDir
     )
   }
 
