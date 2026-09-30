@@ -6,6 +6,7 @@ import { registry } from "../core/provider-registry.js"
 import { loadProjects, loadExcelEnv } from "../core/config-loader.js"
 import { loadState, requireStepOk } from "../core/pipeline-state.js"
 import { writeNpmAuditEvidence } from "../providers/npm-audit/provider.js"
+import { writeUptimeRobotEvidence } from "../providers/uptime-robot/provider.js"
 import { writeJiraEvidence } from "../providers/jira/provider.js"
 import type { DataProvider, ProviderContext, ToolResponse } from "../types/types.ts"
 
@@ -87,6 +88,14 @@ export async function generateOKR(runId: string): Promise<ToolResponse> {
     string,
     Array<{ ctx: ProviderContext; data: unknown }>
   >()
+  const providerProjectCounts = new Map<string, number>()
+  const providerProjectIndexes = new Map<string, number>()
+  for (const project of projects) {
+    for (const provider of registry.getEnabledFor(project)) {
+      const count = providerProjectCounts.get(provider.key) ?? 0
+      providerProjectCounts.set(provider.key, count + 1)
+    }
+  }
 
   for (const [projectIndex, project] of projects.entries()) {
     const providers = registry
@@ -98,12 +107,17 @@ export async function generateOKR(runId: string): Promise<ToolResponse> {
       )
 
     for (const provider of providers) {
+      const providerProjectIndex =
+        providerProjectIndexes.get(provider.key) ?? 0
+      providerProjectIndexes.set(provider.key, providerProjectIndex + 1)
       const ctx: ProviderContext = {
         projectName: project.name,
         projectPath: project.path,
         timeToCompare: project.timeToCompare,
         projectIndex,
         projectCount: projects.length,
+        providerProjectIndex,
+        providerProjectCount: providerProjectCounts.get(provider.key) ?? 1,
       }
       stepResults.push(
         await runProviderStep(
@@ -140,13 +154,23 @@ export async function generateOKR(runId: string): Promise<ToolResponse> {
     )
   }
 
+  const uptimeRobotDetail = detailReportPaths.uptimeRobot
+  if (uptimeRobotDetail) {
+    writeUptimeRobotEvidence(
+      workbook,
+      sharedReportEntries.get("uptimeRobot") ?? [],
+      uptimeRobotDetail,
+      runOutputDir
+    )
+  }
+
   const jiraDetail = detailReportPaths["jira"]
   if (jiraDetail) {
     writeJiraEvidence(
-      workbook,
-      sharedReportEntries.get("jira") ?? [],
-      jiraDetail,
-      runOutputDir
+        workbook,
+        sharedReportEntries.get("jira") ?? [],
+        jiraDetail,
+        runOutputDir
     )
   }
 

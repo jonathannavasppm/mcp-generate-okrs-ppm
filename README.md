@@ -39,7 +39,6 @@ haya pasado (estado compartido vía `core/pipeline-state.ts` con un
 | `verifyConfig` | Valida forma de `PROJECTS` y presencia de env vars de Excel (Zod, sin red). Devuelve el `runId`. |
 | `validateOriginFile` | Valida acceso real: ping a cada fuente habilitada + que `EXCEL_TEMPLATE_PATH` exista y sea un `.xlsx` válido. Requiere `runId`. |
 | `generateOKR` | Ejecuta la recolección real fuente por fuente (orden explícito), escribe el Excel consolidado y reportes de detalle. Un fallo en una fuente no detiene las demás. |
-| `analyzeJiraSprints` | Analiza el cumplimiento de Story Points en Historias de Usuario (HU) para sprints cerrados en el mes evaluado y devuelve la tabla formateada. |
 
 ## Variables de entorno
 
@@ -52,7 +51,15 @@ EXCEL_OUTPUT_DIR=/ruta/reportes-generados
 `timeToCompare` se expresa en **días** (ej. `"180"`). Opcionalmente
 acepta el sufijo `days`/`días` (`"180 days"`). Se usa para clasificar
 el estado de soporte de cada dependencia en el reporte de
-vulnerabilidades.
+vulnerabilidades:
+
+| Estado | Regla |
+|--------|-------|
+| `Deprecated` | Marcada como deprecated en el registry de npm |
+| `Sin soporte` | La versión `latest` se publicó hace más de `timeToCompare` días |
+| `Desactualizada` | `latest` es reciente pero la versión instalada es anterior |
+| `Actualizada` | Versión instalada igual a `latest` y dentro del periodo |
+| `Unknown` | El registry no devolvió fecha de publicación |
 
 ### Bloques opcionales por fuente
 
@@ -72,16 +79,8 @@ PROJECTS=[
       "enabled": true
     },
 
-    "jira": {
-      "enabled": true,
-      "url": "https://qphcorp.atlassian.net",
-      "token": "ATATT...",
-      "email": "usuario@empresa.com",
-      "projectKey": "FE"
-    },
-
     "sonarqube": {
-      "enabled": false,
+      "enabled": true,
       "baseUrl": "https://sonarqube.mi-empresa.com",
       "projectKey": "my-next-app",
       "metrics": ["coverage", "bugs", "vulnerabilities"],
@@ -89,9 +88,16 @@ PROJECTS=[
     },
 
     "uptimeRobot": {
-      "enabled": false,
-      "apiKeyEnv": "UPTIMEROBOT_API_KEY",
-      "monitorIds": ["123456789"]
+      "enabled": true,
+      "companyId": "AbC123XyZ9",
+      "projectId": "123456789"
+    },
+
+    "jira": {
+      "enabled": true,
+      "baseUrl": "https://mi-empresa.atlassian.net",
+      "projectKey": "FE",
+      "apiKeyEnv": "JIRA_API_KEY"
     }
   }
 ]
@@ -100,22 +106,49 @@ PROJECTS=[
 | Bloque | Estado | Campos |
 |--------|--------|--------|
 | `npm-audit` | ✅ Implementado | `enabled` |
-| `jira` | ✅ Implementado | `enabled`, `url` / `baseUrl`, `token`, `email`, `apiKeyEnv`, `projectKey`, `boardId`, `targetMonth`, `targetYear` |
 | `sonarqube` | ⏳ Pendiente | `enabled`, `baseUrl`, `projectKey`, `metrics`, `apiKeyEnv` |
-| `uptimeRobot` | ⏳ Pendiente | `enabled`, `apiKeyEnv`, `monitorIds` |
+| `uptimeRobot` | ✅ Implementado | `enabled`, `companyId`, `projectId` |
+| `jira` | ⏳ Pendiente | `enabled`, `baseUrl`, `projectKey`, `apiKeyEnv` |
 
-### Reglas de Negocio - Jira Provider
-1. **Filtro de HU**: Solo se consideran Historias de Usuario (`Story`, `Historia`, `HU`). Se excluyen Bugs, Tareas (`Task`), Subtareas (`Sub-task`) y Épicas.
-2. **Filtro de Sprints**: Únicamente sprints que fueron cerrados (`state: closed`) dentro del mes a evaluar (tomando como base `completeDate`).
-3. **Métricas**:
-   - Puntos Comprometidos: Suma de Story Points asignados a las HU en el sprint.
-   - Puntos Cumplidos: Suma de Story Points de HU con estado finalizado (`Done`, `Cerrado`, `Resuelto`).
-   - % Cumplimiento: `(Puntos Cumplidos / Puntos Comprometidos) * 100`.
+> `apiKeyEnv` es el **nombre** de la variable de entorno que contiene
+> el token (no el token en sí), para no commitear secretos en
+> `PROJECTS`. UptimeRobot no necesita token: `companyId` y `projectId`
+> corresponden a los segmentos de una página pública como
+> `https://stats.uptimerobot.com/AbC123XyZ9/123456789`.
+
+### UptimeRobot multiproyecto
+
+Cada proyecto habilitado consulta el endpoint público que utiliza el portal:
+`/api/getMonitor/{companyId}?m={projectId}`. En
+`KPI4_Disponibilidad` se crea o reutiliza un bloque horizontal por proyecto,
+en el orden definido en `PROJECTS`. El porcentaje mensual se calcula con los
+ratios diarios del mes calendario; `30dRatio` no se usa porque es una ventana
+móvil.
+
+El reporte incluye horas totales e indisponibles, disponibilidad, incidentes
+y enlaces a la página pública y al Excel de detalle. El endpoint público no es
+una API oficial versionada, por lo que el provider valida su respuesta y
+reporta un error si UptimeRobot cambia el contrato.
 
 La salida se organiza por ejecución:
 `EXCEL_OUTPUT_DIR/Indicadores/<dd-MM-yyyy>/` con el Excel maestro en
-la raíz y reportes de detalle (ej. `vulnerabilidades/`, `jira/`) en
+la raíz y reportes de detalle (ej. `vulnerabilidades/`) en
 subcarpetas.
+
+## Plan de implementación por fases
+
+| Fase | Entregable | Criterio de "hecho" | Estado |
+|------|-----------|----------------------|--------|
+| **1** | Scaffolding: `package.json`, TypeScript, MCP SDK, entrypoint mínimo. | `npm run dev` levanta el server sin errores. | ✅ Completada |
+| **2** | `core/config-loader.ts` con Zod parseando `PROJECTS` (campos base). | Test que carga un `PROJECTS` de ejemplo y valida forma correcta e incorrecta. | ✅ Completada |
+| **3** | `core/provider-registry.ts` + contrato `DataProvider`. | Test que registra un provider dummy y lo recupera con `getEnabledFor`. | ✅ Completada |
+| **4** | Primer provider real: SonarQube (`config.schema.ts`, `client.ts`, `provider.ts` con `validateAccess` + `fetchData` + `writeToExcel`). | `validateAccess` contra SonarQube real (o mock) devuelve `ok` correctamente. | 🔶 **Fase actual** |
+| **5** | Tool de validación end-to-end con SonarQube. | Invocar la tool devuelve el reporte esperado. | ⏳ Parcial (estructura lista, falta provider real) |
+| **5.5** | `core/pipeline-state.ts` + tools `verifyConfig` / `validateOriginFile` encadenadas por `runId`, y `generateOKR` con orden explícito de pasos y `continue`-on-error. | Las tools rechazan ejecutarse si el paso anterior no corrió o falló. | ✅ Completada (verifyConfig + validateOriginFile operativas) |
+| **6** | `core/excel-builder.ts` + tool `generateOKR` que orquesta la recolección y genera el `.xlsx` desde `EXCEL_TEMPLATE_PATH` hacia `EXCEL_OUTPUT_DIR/Indicadores/<dd-MM-yyyy>/`. | Se genera un Excel con al menos una sección real sin modificar la plantilla. | ⏳ Pendiente (`excel-builder.ts` vacío) |
+| **7** | Agregar UptimeRobot, Jira y npm-audit siguiendo el mismo patrón, uno a la vez. | Cada uno pasa sus propios tests antes de integrar el siguiente. | 🔶 UptimeRobot y npm-audit implementados; Jira pendiente |
+| **8** | Manejo de errores transversal: branch mismatch, rate limiting, timeouts por fuente. | Un fallo en una fuente no detiene el reporte completo. | ⏳ Pendiente |
+| **9** | Documentación: README con configuración de `PROJECTS` y checklist "cómo agregar una fuente nueva". | Alguien nuevo puede agregar un provider siguiendo solo el README. | ⏳ Pendiente |
 
 ## Estructura de carpetas
 
@@ -126,15 +159,11 @@ src/
     provider-registry.ts   # registro auto-registrable de fuentes
     pipeline-state.ts      # estado compartido entre tools (runId)
     excel-builder.ts       # arma el Excel desde la plantilla
-  providers/
-    npm-audit/
-    jira/                  # provider de Jira (Sprint metrics & HU)
+  providers/               # una carpeta por fuente (pendiente)
   tools/
     definitions.ts         # registro de tools en el McpServer
-    verifyConfig.ts
-    validateOriginFile.ts
-    generateOKR.ts
-    analyzeJiraSprints.ts
+    verify-config.ts
+    validate-origin-file.ts
   types/types.ts           # contrato DataProvider
   utils/                   # env, errors, logger
   index.ts                 # entrypoint del server MCP
