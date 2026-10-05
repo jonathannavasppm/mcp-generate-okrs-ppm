@@ -28,6 +28,133 @@ configurados y genera un reporte consolidado en Excel.
 - `pino` (logging)
 - `vitest` (tests)
 
+## Requisitos
+
+- Node.js 20 o superior.
+- Una plantilla Excel `.xlsx` compatible, distribuida fuera del paquete.
+- Acceso de lectura a los proyectos configurados en `PROJECTS`.
+- Acceso de escritura a `EXCEL_OUTPUT_DIR`.
+- Credenciales y acceso de red para los providers habilitados.
+
+## Instalación desde npm
+
+El servidor se distribuye como un ejecutable MCP por `stdio`. Para entornos
+controlados se recomienda fijar una versión exacta:
+
+```bash
+npx -y mcp-generate-okrs-ppm@1.0.0
+```
+
+Usar una versión exacta evita que una actualización de `latest` cambie el
+comportamiento del servidor sin una validación previa. El cliente MCP debe
+ejecutarse en la misma máquina donde existen los proyectos, la plantilla y el
+directorio de salida configurados.
+
+## Configuración en clientes MCP
+
+Las configuraciones compartidas no deben contener tokens ni credenciales. Use
+la configuración local o el gestor de secretos del cliente para valores como
+`JIRA_TOKEN`.
+
+### Devin CLI
+
+Guarde la configuración personal en `.devin/mcp_config.local.json`:
+
+```json
+{
+  "mcpServers": {
+    "generate-okrs-ppm": {
+      "command": "npx",
+      "args": ["-y", "mcp-generate-okrs-ppm@1.0.0"],
+      "env": {
+        "PROJECTS": "[{\"name\":\"web\",\"path\":\"/absolute/path/to/web\",\"branch\":\"main\",\"timeToCompare\":\"180\",\"npm-audit\":{\"enabled\":true}}]",
+        "EXCEL_TEMPLATE_PATH": "/absolute/path/to/template_okrs.xlsx",
+        "EXCEL_OUTPUT_DIR": "/absolute/path/to/output",
+        "JIRA_URL": "https://your-company.atlassian.net",
+        "JIRA_EMAIL": "your-email@example.com",
+        "JIRA_TOKEN": "your-local-secret"
+      }
+    }
+  }
+}
+```
+
+También puede registrar el comando desde la terminal:
+
+```bash
+devin mcp add generate-okrs-ppm -- \
+  npx -y mcp-generate-okrs-ppm@1.0.0
+```
+
+Use `.devin/mcp_config.json` únicamente para definiciones no sensibles que se
+compartirán con el equipo.
+
+### Claude Code
+
+Registre el servidor con scope local:
+
+```bash
+claude mcp add --transport stdio --scope local generate-okrs-ppm \
+  -- npx -y mcp-generate-okrs-ppm@1.0.0
+```
+
+También puede utilizar `.mcp.json` para configuración de proyecto o
+`~/.claude.json` para configuración de usuario:
+
+```json
+{
+  "mcpServers": {
+    "generate-okrs-ppm": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "mcp-generate-okrs-ppm@1.0.0"],
+      "env": {
+        "PROJECTS": "[...]",
+        "EXCEL_TEMPLATE_PATH": "/absolute/path/to/template_okrs.xlsx",
+        "EXCEL_OUTPUT_DIR": "/absolute/path/to/output"
+      }
+    }
+  }
+}
+```
+
+Compruebe la conexión mediante `/mcp` o `claude mcp list`.
+
+### Antigravity
+
+Use `~/.gemini/config/mcp_config.json` para configuración global o
+`.agents/mcp_config.json` para el workspace:
+
+```json
+{
+  "mcpServers": {
+    "generate-okrs-ppm": {
+      "command": "npx",
+      "args": ["-y", "mcp-generate-okrs-ppm@1.0.0"],
+      "env": {
+        "PROJECTS": "[...]",
+        "EXCEL_TEMPLATE_PATH": "/absolute/path/to/template_okrs.xlsx",
+        "EXCEL_OUTPUT_DIR": "/absolute/path/to/output"
+      }
+    }
+  }
+}
+```
+
+En Antigravity IDE puede abrir esta configuración desde **MCP Servers → Manage
+MCP Servers → View raw config**.
+
+### Flujo de verificación
+
+Después de reiniciar o recargar el cliente:
+
+1. Confirme que aparecen las cuatro tools del servidor.
+2. Ejecute `verifyConfig` y conserve el `runId` devuelto.
+3. Ejecute `validateOriginFile` con ese `runId`.
+4. Ejecute `generateOKR` con el mismo `runId`.
+5. Confirme que la plantilla original no cambió y que el reporte se creó en
+   `EXCEL_OUTPUT_DIR`.
+
 ## Tools expuestas
 
 | Tool | Descripción |
@@ -200,6 +327,61 @@ src/
   utils/                   # env, errors, logger
   index.ts                 # entrypoint del server MCP
 ```
+
+## Publicación inicial controlada
+
+La publicación inicial se realiza manualmente para revisar el artefacto exacto
+antes de registrarlo en npm.
+
+1. Use una cuenta npm con email verificado y 2FA habilitado.
+2. Confirme que el repositorio esté limpio y la versión no exista en npm.
+3. Ejecute las validaciones:
+
+   ```bash
+   npm ci
+   npm run typecheck
+   npm test
+   npm run build
+   npm pack --dry-run
+   ```
+
+4. Inspeccione el contenido del tarball. No debe contener `.env`, tokens,
+   reportes, tests ni archivos locales.
+5. Publique desde el commit validado:
+
+   ```bash
+   npm publish
+   ```
+
+6. Verifique la versión publicada desde un directorio limpio:
+
+   ```bash
+   npm view mcp-generate-okrs-ppm
+   npx -y mcp-generate-okrs-ppm@1.0.0
+   ```
+
+Una versión publicada no puede sobrescribirse ni reutilizarse. Cualquier
+corrección requiere incrementar la versión siguiendo SemVer.
+
+## Mejora futura: publicación con GitHub Actions
+
+Se contempla automatizar las siguientes versiones mediante GitHub Actions,
+pero esta automatización todavía no está implementada. La evolución propuesta
+incluye:
+
+- Crear un workflow dedicado que se active solo con tags SemVer o GitHub
+  Releases, nunca con cada push a `main`.
+- Configurar npm Trusted Publishing para autenticar GitHub Actions mediante
+  OIDC y evitar un `NPM_TOKEN` persistente.
+- Otorgar al job únicamente `contents: read` e `id-token: write`.
+- Ejecutar `npm ci`, typecheck, tests, build y `npm pack --dry-run` antes de
+  publicar.
+- Verificar que el tag coincide con `package.json` y que la versión no existe.
+- Usar un GitHub Environment con aprobación manual, control de concurrencia y
+  provenance del artefacto.
+
+Esta mejora debe abordarse después de crear el paquete mediante la publicación
+inicial controlada y asociar el Trusted Publisher en npm.
 
 ## Comandos
 

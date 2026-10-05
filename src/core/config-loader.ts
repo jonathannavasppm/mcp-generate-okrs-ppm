@@ -1,6 +1,6 @@
 import { z } from "zod"
 import dotenv from "dotenv"
-dotenv.config()
+dotenv.config({ quiet: true })
 
 const sourceBlockSchema = z.record(z.string(), z.unknown()).optional()
 
