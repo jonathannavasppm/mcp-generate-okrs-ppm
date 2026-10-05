@@ -38,17 +38,35 @@ configurados y genera un reporte consolidado en Excel.
 
 ## Instalación desde npm
 
-El servidor se distribuye como un ejecutable MCP por `stdio`. Para entornos
-controlados se recomienda fijar una versión exacta:
+El servidor se distribuye como un ejecutable MCP por `stdio`. La versión
+estable actual es `1.0.1`. Para entornos controlados se recomienda fijar esa
+versión exacta:
 
 ```bash
-npx -y mcp-generate-okrs-ppm@1.0.0
+npx -y mcp-generate-okrs-ppm@1.0.1
+```
+
+También puede instalar la versión publicada con el dist-tag `latest`:
+
+```bash
+npm install -g mcp-generate-okrs-ppm@latest
 ```
 
 Usar una versión exacta evita que una actualización de `latest` cambie el
 comportamiento del servidor sin una validación previa. El cliente MCP debe
 ejecutarse en la misma máquina donde existen los proyectos, la plantilla y el
 directorio de salida configurados.
+
+### Cambios en `1.0.1`
+
+- `generateOKR` actualiza directamente la hoja `KPI6_Cumplimiento` para el
+  primer proyecto que tenga Jira habilitado, aunque no sea el primer proyecto
+  definido en `PROJECTS`.
+- El reporte consolidado y el reporte de evidencia de Jira se generan dentro
+  del mismo flujo; no es necesario ejecutar `analyzeJiraSprints` después de
+  `generateOKR`.
+- `analyzeJiraSprints` se conserva como herramienta independiente para
+  regenerar o analizar Jira de forma puntual.
 
 ## Configuración en clientes MCP
 
@@ -65,7 +83,7 @@ Guarde la configuración personal en `.devin/mcp_config.local.json`:
   "mcpServers": {
     "generate-okrs-ppm": {
       "command": "npx",
-      "args": ["-y", "mcp-generate-okrs-ppm@1.0.0"],
+      "args": ["-y", "mcp-generate-okrs-ppm@1.0.1"],
       "env": {
         "PROJECTS": "[{\"name\":\"web\",\"path\":\"/absolute/path/to/web\",\"branch\":\"main\",\"timeToCompare\":\"180\",\"npm-audit\":{\"enabled\":true}}]",
         "EXCEL_TEMPLATE_PATH": "/absolute/path/to/template_okrs.xlsx",
@@ -83,7 +101,7 @@ También puede registrar el comando desde la terminal:
 
 ```bash
 devin mcp add generate-okrs-ppm -- \
-  npx -y mcp-generate-okrs-ppm@1.0.0
+  npx -y mcp-generate-okrs-ppm@1.0.1
 ```
 
 Use `.devin/mcp_config.json` únicamente para definiciones no sensibles que se
@@ -95,7 +113,7 @@ Registre el servidor con scope local:
 
 ```bash
 claude mcp add --transport stdio --scope local generate-okrs-ppm \
-  -- npx -y mcp-generate-okrs-ppm@1.0.0
+  -- npx -y mcp-generate-okrs-ppm@1.0.1
 ```
 
 También puede utilizar `.mcp.json` para configuración de proyecto o
@@ -107,7 +125,7 @@ También puede utilizar `.mcp.json` para configuración de proyecto o
     "generate-okrs-ppm": {
       "type": "stdio",
       "command": "npx",
-      "args": ["-y", "mcp-generate-okrs-ppm@1.0.0"],
+      "args": ["-y", "mcp-generate-okrs-ppm@1.0.1"],
       "env": {
         "PROJECTS": "[...]",
         "EXCEL_TEMPLATE_PATH": "/absolute/path/to/template_okrs.xlsx",
@@ -130,7 +148,7 @@ Use `~/.gemini/config/mcp_config.json` para configuración global o
   "mcpServers": {
     "generate-okrs-ppm": {
       "command": "npx",
-      "args": ["-y", "mcp-generate-okrs-ppm@1.0.0"],
+      "args": ["-y", "mcp-generate-okrs-ppm@1.0.1"],
       "env": {
         "PROJECTS": "[...]",
         "EXCEL_TEMPLATE_PATH": "/absolute/path/to/template_okrs.xlsx",
@@ -161,8 +179,8 @@ Después de reiniciar o recargar el cliente:
 |------|-------------|
 | `verifyConfig` | Valida forma de `PROJECTS` y presencia de env vars de Excel (Zod, sin red). Devuelve el `runId`. |
 | `validateOriginFile` | Valida acceso real: ping a cada fuente habilitada + que `EXCEL_TEMPLATE_PATH` exista y sea un `.xlsx` válido. Requiere `runId`. |
-| `generateOKR` | Ejecuta la recolección orquestada fuente por fuente (orden explícito), escribe el Excel consolidado y reportes de detalle. Un fallo en una fuente no detiene las demás. |
-| `analyzeJiraSprints` | Ejecuta de forma directa el análisis de **KPI6 (Indicador de Cumplimiento de Sprints Jira)**, filtrando solo Historias de Usuario para los sprints cerrados en el mes y escribe los resultados directamente en la hoja `KPI6_Cumplimiento` de la plantilla de Excel, generando además el archivo de evidencia secundario en `EXCEL_OUTPUT_DIR`. |
+| `generateOKR` | Ejecuta la recolección orquestada fuente por fuente (orden explícito), incluida la actualización de Jira en `KPI6_Cumplimiento`, y escribe el Excel consolidado y los reportes de detalle. Un fallo en una fuente no detiene las demás. |
+| `analyzeJiraSprints` | Regenera de forma independiente el análisis de **KPI6 (Indicador de Cumplimiento de Sprints Jira)**. Es opcional después de `generateOKR` y resulta útil para ejecutar Jira de forma puntual con filtros de proyecto o periodo. |
 
 ## Variables de entorno
 
@@ -357,7 +375,7 @@ antes de registrarlo en npm.
 
    ```bash
    npm view mcp-generate-okrs-ppm
-   npx -y mcp-generate-okrs-ppm@1.0.0
+   npx -y mcp-generate-okrs-ppm@1.0.1
    ```
 
 Una versión publicada no puede sobrescribirse ni reutilizarse. Cualquier
