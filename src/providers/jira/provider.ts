@@ -42,6 +42,11 @@ const THIN_BORDER: Partial<ExcelJS.Borders> = {
   right: { style: "thin", color: { argb: "FFD3D3D3" } },
 }
 
+const CENTER_ALIGNMENT: Partial<ExcelJS.Alignment> = {
+  vertical: "middle",
+  horizontal: "center",
+}
+
 function styleHeaderCell(
   cell: ExcelJS.Cell,
   text: string,
@@ -57,7 +62,7 @@ function styleHeaderCell(
 function styleDataCell(
   cell: ExcelJS.Cell,
   value: ExcelJS.CellValue,
-  alignment: Partial<ExcelJS.Alignment> = { vertical: "middle", horizontal: "center" },
+  alignment: Partial<ExcelJS.Alignment> = CENTER_ALIGNMENT,
   numFmt?: string
 ): void {
   cell.value = value
@@ -70,7 +75,7 @@ function styleDataCell(
 function styleTotalCell(
   cell: ExcelJS.Cell,
   value: ExcelJS.CellValue,
-  alignment: Partial<ExcelJS.Alignment> = { vertical: "middle", horizontal: "center" },
+  alignment: Partial<ExcelJS.Alignment> = CENTER_ALIGNMENT,
   numFmt?: string
 ): void {
   cell.value = value
@@ -125,7 +130,7 @@ export const jiraProvider: DataProvider<JiraConfig> = {
     ctx: ProviderContext
   ): void {
     const report = asJiraReport(data)
-    const projectIndex = ctx.projectIndex ?? 0
+    const projectIndex = ctx.providerProjectIndex ?? ctx.projectIndex ?? 0
 
     // 1. Configuración de datos del mes en la plantilla (A5, B5, C5, D5, B6)
     const monthName = MONTH_NAMES_ES[report.period.month - 1] || "Mes"
@@ -403,7 +408,8 @@ export function writeJiraEvidence(
 
   let reportRow = 0
   sheet.eachRow((row, rowNumber) => {
-    const label = String(row.getCell(1).value || "").trim()
+    const cellValue = row.getCell(1).value
+    const label = typeof cellValue === "string" ? cellValue.trim() : ""
     if (label.startsWith("Reportes de Sprint")) {
       reportRow = rowNumber
     }

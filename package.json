@@ -1,6 +1,6 @@
 {
   "name": "mcp-generate-okrs-ppm",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "MCP server that generates consolidated OKR reports in Excel",
   "main": "dist/index.js",
   "bin": {
