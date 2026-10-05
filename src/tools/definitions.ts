@@ -4,6 +4,7 @@ import { verifyConfig } from "./verify-config.js"
 import { validateOriginFile } from "./validate-origin-file.js"
 import { generateOKR } from "./generate-okr.js"
 import { analyzeJiraSprints } from "./analyze-jira.js"
+import { fillQuality } from "./fill-quality.js"
 
 const validateOriginFileSchema = z.object({
   runId: z.string(),
@@ -68,5 +69,38 @@ export const registerTools = (server: McpServer) => {
       }),
     },
     async (params) => analyzeJiraSprints(params)
+  )
+
+  server.registerTool(
+    "fillQuality",
+    {
+      title: "Llenar Calidad de Código (SonarQube)",
+      description:
+        "Llena el tab KPI3_CalidadCodigo con métricas de SonarQube de uno o más repos y genera el Excel en la ruta configurada (EXCEL_OUTPUT_DIR)",
+      inputSchema: z.object({
+        repos: z
+          .array(
+            z.object({
+              projectKey: z
+                .string()
+                .min(1)
+                .describe("SonarQube project key"),
+              baseUrl: z.string().min(1).describe("SonarQube base URL"),
+              branch: z.string().min(1).describe("Branch a analizar"),
+              apiKeyEnv: z
+                .string()
+                .optional()
+                .describe(
+                  "Nombre de la variable de entorno con el API key (por defecto SONARQUBE_API_KEY)"
+                ),
+            })
+          )
+          .min(1)
+          .describe(
+            "Lista de repos SonarQube. Cada repo llena una columna (B, C, D...) en el tab de calidad"
+          ),
+      }),
+    },
+    async (params) => fillQuality(params)
   )
 }
