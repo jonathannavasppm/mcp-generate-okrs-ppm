@@ -76,7 +76,7 @@ export const registerTools = (server: McpServer) => {
     {
       title: "Llenar Calidad de Código (SonarQube)",
       description:
-        "Llena el tab KPI3_CalidadCodigo con métricas de SonarQube de uno o más repos y genera el Excel en la ruta configurada (EXCEL_OUTPUT_DIR)",
+        "Llena el tab KPI3_CalidadCodigo con métricas de SonarQube. Si no se pasan repos, lee automáticamente los proyectos con sonarqube.enabled=true de PROJECTS.",
       inputSchema: z.object({
         repos: z
           .array(
@@ -95,9 +95,9 @@ export const registerTools = (server: McpServer) => {
                 ),
             })
           )
-          .min(1)
+          .optional()
           .describe(
-            "Lista de repos SonarQube. Cada repo llena una columna (B, C, D...) en el tab de calidad"
+            "Lista de repos SonarQube (opcional). Si se omite, se leen de PROJECTS los que tengan sonarqube.enabled=true. Cada repo llena una columna (B, C, D...)"
           ),
       }),
     },

@@ -1,7 +1,7 @@
 import fs from "node:fs/promises"
 import path from "node:path"
 import ExcelJS from "exceljs"
-import { loadExcelEnv } from "../core/config-loader.js"
+import { loadExcelEnv, loadProjects } from "../core/config-loader.js"
 import { logger } from "../utils/logger.js"
 import type { ToolResponse } from "../types/types.js"
 
@@ -57,13 +57,42 @@ interface QualityData {
   vulnerabilities?: string
 }
 
+interface SonarRepo {
+  projectKey: string
+  baseUrl: string
+  branch: string
+  apiKeyEnv?: string
+}
+
 export interface FillQualityParams {
-  repos: Array<{
-    projectKey: string
-    baseUrl: string
-    branch: string
-    apiKeyEnv?: string
-  }>
+  repos?: SonarRepo[]
+}
+
+function resolveReposFromProjects(): SonarRepo[] {
+  const projects = loadProjects()
+  const repos: SonarRepo[] = []
+
+  for (const project of projects) {
+    const sonar = project.sonarqube as
+      | { enabled?: boolean; baseUrl?: string; projectKey?: string; apiKeyEnv?: string }
+      | undefined
+    if (!sonar?.enabled) continue
+    if (!sonar.baseUrl || !sonar.projectKey) {
+      logger.warn(
+        { project: project.name },
+        "Proyecto con sonarqube.enabled=true pero sin baseUrl o projectKey, se omite"
+      )
+      continue
+    }
+    repos.push({
+      projectKey: sonar.projectKey,
+      baseUrl: sonar.baseUrl,
+      branch: project.branch,
+      apiKeyEnv: sonar.apiKeyEnv,
+    })
+  }
+
+  return repos
 }
 
 async function fetchSonarMetrics(repo: {
@@ -175,6 +204,36 @@ export async function fillQuality(
   params: FillQualityParams
 ): Promise<ToolResponse> {
   try {
+    const repos =
+      params.repos && params.repos.length > 0
+        ? params.repos
+        : resolveReposFromProjects()
+
+    if (repos.length === 0) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(
+              {
+                success: false,
+                error:
+                  'No se encontraron repos. Pase repos manualmente o configure sonarqube.enabled=true en PROJECTS.',
+              },
+              null,
+              2
+            ),
+          },
+        ],
+        isError: true,
+      }
+    }
+
+    logger.info(
+      { repos: repos.map((r) => r.projectKey) },
+      "Repos a procesar para KPI3"
+    )
+
     const { EXCEL_TEMPLATE_PATH, EXCEL_OUTPUT_DIR } = loadExcelEnv()
 
     const masterOutputPath = await resolveMasterOutputPath(EXCEL_OUTPUT_DIR)
@@ -200,8 +259,8 @@ export async function fillQuality(
     const reposWritten: string[] = []
     const errors: string[] = []
 
-    for (let i = 0; i < params.repos.length; i++) {
-      const repo = params.repos[i]
+    for (let i = 0; i < repos.length; i++) {
+      const repo = repos[i]
       const col = 2 + i // B=2, C=3, D=4...
 
       try {

@@ -166,11 +166,12 @@ MCP Servers → View raw config**.
 
 Después de reiniciar o recargar el cliente:
 
-1. Confirme que aparecen las cuatro tools del servidor.
+1. Confirme que aparecen las cinco tools del servidor.
 2. Ejecute `verifyConfig` y conserve el `runId` devuelto.
 3. Ejecute `validateOriginFile` con ese `runId`.
 4. Ejecute `generateOKR` con el mismo `runId`.
-5. Confirme que la plantilla original no cambió y que el reporte se creó en
+5. (Opcional) Ejecute `fillQuality` para llenar KPI3 con métricas de SonarQube.
+6. Confirme que la plantilla original no cambió y que el reporte se creó en
    `EXCEL_OUTPUT_DIR`.
 
 ## Tools expuestas
@@ -181,6 +182,7 @@ Después de reiniciar o recargar el cliente:
 | `validateOriginFile` | Valida acceso real: ping a cada fuente habilitada + que `EXCEL_TEMPLATE_PATH` exista y sea un `.xlsx` válido. Requiere `runId`. |
 | `generateOKR` | Ejecuta la recolección orquestada fuente por fuente (orden explícito), incluida la actualización de Jira en `KPI6_Cumplimiento`, y escribe el Excel consolidado y los reportes de detalle. Un fallo en una fuente no detiene las demás. |
 | `analyzeJiraSprints` | Regenera de forma independiente el análisis de **KPI6 (Indicador de Cumplimiento de Sprints Jira)**. Es opcional después de `generateOKR` y resulta útil para ejecutar Jira de forma puntual con filtros de proyecto o periodo. |
+| `fillQuality` | Llena la hoja **`KPI3_CalidadCodigo`** con métricas de SonarQube (Quality Gate, Maintainability Rating, Technical Debt Ratio, Coverage, Reliability Rating/Score y Vulnerabilidades). Si no se pasan repos manualmente, lee automáticamente los proyectos con `sonarqube.enabled=true` de `PROJECTS`. Cada repo ocupa una columna (B, C, D…). No requiere `runId`. |
 
 ## Variables de entorno
 
@@ -193,6 +195,9 @@ EXCEL_OUTPUT_DIR=/ruta/reportes-generados
 JIRA_URL=https://mi-empresa.atlassian.net
 JIRA_TOKEN=mi_api_token_de_jira
 JIRA_EMAIL=usuario@mi-empresa.com
+
+# Token de SonarQube (sobreescribible por repo con apiKeyEnv en PROJECTS)
+SONARQUBE_API_KEY=mi_token_de_sonarqube
 ```
 
 `timeToCompare` se expresa en **días** (ej. `"180"`). Opcionalmente
@@ -251,7 +256,7 @@ PROJECTS=[
 | Bloque | Estado | Campos |
 |--------|--------|--------|
 | `npm-audit` | ✅ Implementado | `enabled` |
-| `sonarqube` | ⏳ Pendiente | `enabled`, `baseUrl`, `projectKey`, `metrics`, `apiKeyEnv` |
+| `sonarqube` | ✅ Implementado | `enabled`, `baseUrl`, `projectKey`, `metrics`, `apiKeyEnv` |
 | `uptimeRobot` | ✅ Implementado | `enabled`, `companyId`, `projectId` |
 | `jira` | ✅ Implementado | `enabled`, `projectKey` (o `proyectKey`), `boardId` (opc.), `targetMonth` (opc.), `targetYear` (opc.), `storyPointField` (opc.), `token` (opc.), `url` (opc.), `email` (opc.) |
 
@@ -307,6 +312,49 @@ y enlaces a la página pública y al Excel de detalle.
 
 ---
 
+## Calidad de Código (KPI3 - SonarQube)
+
+La tool `fillQuality` consulta la API `api/measures/component` de SonarQube para
+cada repositorio y escribe los resultados en la hoja **`KPI3_CalidadCodigo`**.
+Cada repo ocupa una columna consecutiva (B, C, D…), permitiendo comparación lado
+a lado de múltiples proyectos.
+
+Si no se pasan repos como parámetro, la tool lee automáticamente los proyectos
+con `sonarqube.enabled=true` de `PROJECTS`.
+
+### Métricas recolectadas por repositorio
+
+| Fila | Métrica | Fuente SonarQube | Transformación |
+|------|---------|-----------------|----------------|
+| 4 | Project Key | — | Identificador del repo en SonarQube |
+| 5 | Branch | — | Branch analizado (parámetro de entrada) |
+| 6 | Fecha de análisis | — | Timestamp de ejecución (ISO 8601) |
+| 10 | Quality Gate | `alert_status` | OK → PASS, ERROR → FAIL, WARN → WARN |
+| 11 | Maintainability Rating | `sqale_rating` | 1 → A, 2 → B, 3 → C, 4 → D, 5 → E |
+| 12 | Technical Debt Ratio | `sqale_debt_ratio` | Valor / 100 (se almacena como porcentaje) |
+| 13 | Coverage | `coverage` | Valor / 100 (se almacena como porcentaje) |
+| 14 | Reliability Rating | `reliability_rating` | 1 → A, 2 → B, 3 → C, 4 → D, 5 → E |
+| 15 | Reliability Score | — (fórmula Excel) | A=1, B=0.8, C=0.6, D=0.4, E=0.2 (IF anidado) |
+| 16 | Vulnerabilities | `vulnerabilities` | Cantidad (valor entero) |
+
+### Configuración
+
+Requiere la variable `SONARQUBE_API_KEY` (o la especificada en `apiKeyEnv` por
+repo) y el bloque `sonarqube` habilitado en `PROJECTS`:
+
+```json
+{
+  "sonarqube": {
+    "enabled": true,
+    "baseUrl": "https://sonarqube.mi-empresa.com",
+    "projectKey": "mi-proyecto",
+    "apiKeyEnv": "SONARQUBE_API_KEY"
+  }
+}
+```
+
+---
+
 ## Plan de implementación por fases
 
 | Fase | Entregable | Criterio de "hecho" | Estado |
@@ -314,8 +362,8 @@ y enlaces a la página pública y al Excel de detalle.
 | **1** | Scaffolding: `package.json`, TypeScript, MCP SDK, entrypoint mínimo. | `npm run dev` levanta el server sin errores. | ✅ Completada |
 | **2** | `core/config-loader.ts` con Zod parseando `PROJECTS` (campos base). | Test que carga un `PROJECTS` de ejemplo y valida forma correcta e incorrecta. | ✅ Completada |
 | **3** | `core/provider-registry.ts` + contrato `DataProvider`. | Test que registra un provider dummy y lo recupera con `getEnabledFor`. | ✅ Completada |
-| **4** | Primer provider real: SonarQube (`config.schema.ts`, `client.ts`, `provider.ts` con `validateAccess` + `fetchData` + `writeToExcel`). | `validateAccess` contra SonarQube real (o mock) devuelve `ok` correctamente. | ⏳ Pendiente |
-| **5** | Tool de validación end-to-end con SonarQube. | Invocar la tool devuelve el reporte esperado. | ⏳ Pendiente |
+| **4** | Tool `fillQuality` para SonarQube: consulta métricas de calidad y escribe en `KPI3_CalidadCodigo`. Lee repos de `PROJECTS` automáticamente. | La tool llena una columna por repo con Quality Gate, ratings, coverage y vulnerabilidades. | ✅ Completada |
+| **5** | Validación end-to-end con SonarQube multiproyecto. | Invocar `fillQuality` sin parámetros toma todos los proyectos con `sonarqube.enabled=true`. | ✅ Completada |
 | **5.5** | `core/pipeline-state.ts` + tools `verifyConfig` / `validateOriginFile` encadenadas por `runId`, y `generateOKR` con orden explícito de pasos y `continue`-on-error. | Las tools rechazan ejecutarse si el paso anterior no corrió o falló. | ✅ Completada |
 | **6** | `core/excel-builder.ts` + tool `generateOKR` que orquesta la recolección y genera el `.xlsx` desde `EXCEL_TEMPLATE_PATH` hacia `EXCEL_OUTPUT_DIR/Indicadores/<dd-MM-yyyy>/`. | Se genera un Excel con secciones reales sin modificar la plantilla base. | ✅ Completada |
 | **7** | Implementación de providers: UptimeRobot, Jira (KPI6) y npm-audit. | Cada uno pasa sus propios tests unitarios e integración en plantilla Excel. | ✅ npm-audit, UptimeRobot y Jira implementados |
@@ -341,6 +389,7 @@ src/
     validateOriginFile.ts
     generateOKR.ts
     analyzeJiraSprints.ts  # tool directa para KPI6 de Jira
+    fillQuality.ts         # tool para KPI3 de SonarQube
   types/types.ts           # contratos y tipos del pipeline
   utils/                   # env, errors, logger
   index.ts                 # entrypoint del server MCP
